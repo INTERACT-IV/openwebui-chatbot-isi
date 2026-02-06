@@ -127,11 +127,3 @@ Si vous utilisez une URL HTTPS avec un certificat auto-signé, vous pourriez ren
 
 Pour arrêter le serveur, appuyez sur `Ctrl+C` dans le terminal où le serveur est en cours d'exécution.
 
-### Configuration avec Docker
-
-Pour utiliser votre propre fichier .env avec Docker, montez-le comme un volume :
-
-```bash
-docker run -p 8081:8081 -v ./votre_fichier_env:/app/.env openwebui-chatbot
-```
-
