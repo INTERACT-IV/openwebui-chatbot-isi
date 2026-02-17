@@ -4,12 +4,86 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenWebUI Chatbot</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .message-content {
+            line-height: 1.6;
+        }
+
+        .message-content p {
+            margin-bottom: 0.8em;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-content strong {
+            font-weight: 600;
+        }
+
+        .message-content em {
+            font-style: italic;
+        }
+
+        .message-content code {
+            background-color: rgba(0, 0, 0, 0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+
+        .message-content pre {
+            background-color: rgba(0, 0, 0, 0.1);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .message-content pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+
+        .message-content ul, .message-content ol {
+            margin-left: 20px;
+            margin-bottom: 10px;
+        }
+
+        .message-content li {
+            margin-bottom: 5px;
+        }
+
+        .message-content h1, .message-content h2, .message-content h3, 
+        .message-content h4, .message-content h5, .message-content h6 {
+            margin-top: 15px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .message-content blockquote {
+            border-left: 3px solid #717AB9;
+            padding-left: 15px;
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .message-content a {
+            color: #717AB9;
+            text-decoration: underline;
+        }
+
+        .user-message .message-content a {
+            color: #fff;
         }
 
         body {
@@ -311,10 +385,11 @@
                 const messageDiv = document.createElement('div');
                 messageDiv.classList.add('message');
                 messageDiv.classList.add(role === 'user' ? 'user-message' : 'bot-message');
-                
-                const textSpan = document.createElement('span');
-                textSpan.textContent = content;
-                messageDiv.appendChild(textSpan);
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.innerHTML = marked.parse(content);
+                messageDiv.appendChild(contentDiv);
 
                 const copyIcon = document.createElement('div');
                 copyIcon.className = 'copy-icon';
@@ -367,7 +442,7 @@
                     // Show loading indicator
                     const loadingDiv = document.createElement('div');
                     loadingDiv.classList.add('message', 'bot-message');
-                    loadingDiv.innerHTML = '<span class="loading"></span> Génération de la réponse...';
+                    loadingDiv.innerHTML = '<span class="loading"></span> Thinking...';
                     chatContainer.appendChild(loadingDiv);
                     chatContainer.scrollTop = chatContainer.scrollHeight;
 
@@ -409,10 +484,11 @@
                     // Create a new message element for the streamed response
                     const messageDiv = document.createElement('div');
                     messageDiv.classList.add('message', 'bot-message');
-                    const textSpan = document.createElement('span');
-                    messageDiv.appendChild(textSpan);
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'message-content';
+                    messageDiv.appendChild(contentDiv);
                     chatContainer.appendChild(messageDiv);
-                    
+
 
                     while (true) {
                         const { done, value } = await reader.read();
@@ -445,7 +521,7 @@
                                         if (data.choices && data.choices[0].delta?.content) {
                                             const content = data.choices[0].delta.content;
                                             botMessage += content;
-                                            textSpan.textContent = botMessage;
+                                            contentDiv.innerHTML = marked.parse(botMessage);
                                             chatContainer.scrollTop = chatContainer.scrollHeight;
                                         }
                                     } catch (e) {
@@ -474,7 +550,7 @@
                                     if (data.choices && data.choices[0].delta?.content) {
                                         const content = data.choices[0].delta.content;
                                         botMessage += content;
-                                        textSpan.textContent = botMessage;
+                                        contentDiv.innerHTML = marked.parse(botMessage);
                                         chatContainer.scrollTop = chatContainer.scrollHeight;
                                     }
                                 } catch (e) {
