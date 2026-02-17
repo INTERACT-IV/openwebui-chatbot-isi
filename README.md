@@ -7,7 +7,8 @@ Ce document explique comment installer et lancer l'application de chatbot OpenWe
 - Python 3.7 ou supérieur
 - pip (gestionnaire de paquets Python)
 - Accès à une instance OpenWebUI avec une clé API valide
-
+- Installé sur pow-gwn user ai-user
+  
 ## Étapes d'installation
 
 ### 1. Cloner ou télécharger le projet
