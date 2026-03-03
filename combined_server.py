@@ -98,25 +98,35 @@ def evaluate_response_quality(question, answer):
 
 def log_to_sheets(username, question, answer):
     """Logs the interaction to Google Sheets."""
-    if not GOOGLE_SHEETS_ENABLED or not os.path.exists(CREDENTIALS_FILE):
+    print(f"[SHEETS] Attempting to log for {username}")
+    
+    if not GOOGLE_SHEETS_ENABLED:
+        print(f"[SHEETS] Google Sheets not enabled (missing dependencies)")
+        return
+    
+    if not os.path.exists(CREDENTIALS_FILE):
+        print(f"[SHEETS] Credentials file not found: {CREDENTIALS_FILE}")
         return
 
     def _log_thread():
         quality_score = evaluate_response_quality(question, answer)
         try:
+            print(f"[SHEETS] Starting sheet operation...")
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
             client = gspread.authorize(creds)
             sheet = client.open_by_key(SHEET_ID).get_worksheet(0)
-            
+            print(f"[SHEETS] Connected to sheet: {SHEET_ID}")
+
             if not sheet.get_all_values():
                 sheet.append_row(["Timestamp", "User", "Question", "Answer", "Qualité (%)"])
-            
+                print(f"[SHEETS] Created header row")
+
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             sheet.append_row([timestamp, username, question, answer, quality_score])
             print(f"[SHEETS] Logged for {username} (Score: {quality_score})")
         except Exception as e:
-            print(f"[SHEETS] Error: {e}")
+            print(f"[SHEETS] Error: {type(e).__name__}: {e}")
 
     threading.Thread(target=_log_thread).start()
 
@@ -299,15 +309,39 @@ class CombinedHandler(BaseHTTPRequestHandler):
         try:
             question = json.loads(req_body)['messages'][-1]['content']
             answer = ""
-            for line in res_data.decode('utf-8').splitlines():
-                if line.startswith('data: '):
-                    data = line[6:]
-                    if data == '[DONE]': continue
-                    chunk = json.loads(data)
-                    if chunk['choices'][0]['delta'].get('content'):
-                        answer += chunk['choices'][0]['delta']['content']
-            log_to_sheets(self.get_username() or "unknown", question, answer)
-        except: pass
+            res_text = res_data.decode('utf-8')
+            
+            # Check if streaming response (contains 'data: ' lines)
+            if 'data: ' in res_text:
+                for line in res_text.splitlines():
+                    if line.startswith('data: '):
+                        data = line[6:]
+                        if data == '[DONE]': continue
+                        try:
+                            chunk = json.loads(data)
+                            content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                            if content:
+                                answer += content
+                        except json.JSONDecodeError:
+                            continue
+            else:
+                # Non-streaming response (direct JSON)
+                try:
+                    res_json = json.loads(res_text)
+                    answer = res_json.get('choices', [{}])[0].get('message', {}).get('content', '')
+                except json.JSONDecodeError:
+                    print(f"[LOG] Failed to parse non-streaming response")
+                    return
+            
+            if not answer:
+                print(f"[LOG] No answer extracted")
+                return
+                
+            username = self.get_username() or "unknown"
+            print(f"[LOG] Extracted Q: {question[:50]}... A: {answer[:50]}...")
+            log_to_sheets(username, question, answer)
+        except Exception as e:
+            print(f"[LOG] Error in extract_and_log: {e}")
 
     def send_json(self, data, cookie=None, status=200):
         self.send_response(status)
