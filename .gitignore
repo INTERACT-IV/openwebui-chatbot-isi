@@ -1,5 +1,6 @@
 # Fichiers d'environnement contenant des informations sensibles
 .env
+chatbot-489108-66c1494dfc80.json
 
 # Cache Python
 __pycache__/
