@@ -22,8 +22,8 @@ from pathlib import Path
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-    from google.oauth2 import id_token
     from google.auth.transport import requests as google_requests
+    import google.oauth2.id_token as id_token
     GOOGLE_SHEETS_ENABLED = True
 except ImportError:
     GOOGLE_SHEETS_ENABLED = False
