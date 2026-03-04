@@ -79,45 +79,6 @@ load_env()
 # Load allowed domains from environment variable (after .env is loaded)
 ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
 
-def evaluate_response_quality(question, answer):
-    """Asks the LLM to evaluate the quality of its own response."""
-    try:
-        api_key = os.environ.get('OPENWEBUI_API_KEY')
-        base_url = os.environ.get('DEFAULT_OPENWEBUI_URL')
-        if not api_key or not base_url:
-            print("[EVAL] Skipping - missing API key or URL")
-            return "N/A"
-
-        payload = {
-            "model": "rag-isi-com",
-            "messages": [{"role": "user", "content": f"Évalue la qualité (0-100) de cette réponse à la question posée. Réponds uniquement par le chiffre.\nQ: {question}\nR: {answer}"}],
-            "stream": False
-        }
-
-        target_url = f"{base_url.rstrip('/')}/api/v1/chat/completions"
-        req = urllib.request.Request(
-            target_url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-            method='POST'
-        )
-
-        # Increased timeout to 120 seconds for slow models
-        with urllib.request.urlopen(req, timeout=120) as res:
-            res_data = json.loads(res.read().decode('utf-8'))
-            score = res_data['choices'][0]['message']['content'].strip()
-            import re
-            match = re.search(r'(\d+)', score)
-            result = f"{match.group(1)}%" if match else "N/A"
-            print(f"[EVAL] Score received: {result}")
-            return result
-    except urllib.error.URLError as e:
-        print(f"[EVAL] Timeout or connection error: {e}")
-        return "Timeout"
-    except Exception as e:
-        print(f"[EVAL] Error: {type(e).__name__}: {e}")
-        return "Error"
-
 def log_to_sheets(username, question, answer):
     """Logs the interaction to Google Sheets."""
     print(f"[SHEETS] Attempting to log for {username}")
@@ -131,8 +92,6 @@ def log_to_sheets(username, question, answer):
         return
 
     def _log_thread():
-        # Quality evaluation disabled due to timeout issues
-        quality_score = "N/A"
         try:
             print(f"[SHEETS] Starting sheet operation...")
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -142,12 +101,12 @@ def log_to_sheets(username, question, answer):
             print(f"[SHEETS] Connected to sheet: {SHEET_ID}")
 
             if not sheet.get_all_values():
-                sheet.append_row(["Timestamp", "User", "Question", "Answer", "Qualité (%)"])
+                sheet.append_row(["Timestamp", "User", "Question", "Answer"])
                 print(f"[SHEETS] Created header row")
 
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([timestamp, username, question, answer, quality_score])
-            print(f"[SHEETS] Logged for {username} (Score: {quality_score})")
+            sheet.append_row([timestamp, username, question, answer])
+            print(f"[SHEETS] Logged for {username}")
         except Exception as e:
             print(f"[SHEETS] Error: {type(e).__name__}: {e}")
 
