@@ -33,3 +33,6 @@ logs/
 # Autres fichiers à ignorer
 .Dockerfile
 .dockerignore
+
+#Fichiers de lancement de commandes
+*.bat
