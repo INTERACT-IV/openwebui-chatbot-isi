@@ -256,7 +256,7 @@ class CombinedHandler(BaseHTTPRequestHandler):
             return
 
         target_url = f"{base_url.rstrip('/')}/api/v1/{api_endpoint.lstrip('/')}" if 'chat/completions' in api_endpoint else f"{base_url.rstrip('/')}/{api_endpoint.lstrip('/')}"
-        
+
         headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
@@ -270,7 +270,7 @@ class CombinedHandler(BaseHTTPRequestHandler):
                 req_body = self.rfile.read(content_length)
 
             req = urllib.request.Request(target_url, data=req_body if req_body else None, headers=headers, method=self.command)
-            
+
             with urllib.request.urlopen(req, timeout=300) as res:
                 res_data = res.read()
                 self.send_response(res.getcode())
@@ -340,7 +340,7 @@ def run():
     port = int(os.environ.get('SERVER_PORT', 8081))
     os.chdir(Path(__file__).parent)
     print(f"Server: chatbot.isi-com.cloud (internal port {port})")
-    
+
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), CombinedHandler) as httpd:
         try:
