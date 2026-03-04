@@ -4,6 +4,14 @@ Combined HTTP Server for OpenWebUI Chatbot
 Serves webchat.html, handles authentication, and proxies API requests.
 """
 
+import sys
+from pathlib import Path
+
+# Load vendored dependencies if available
+vendor_path = Path(__file__).parent / 'vendor'
+if vendor_path.exists():
+    sys.path.insert(0, str(vendor_path))
+
 import os
 import json
 import base64
@@ -16,17 +24,21 @@ import urllib.parse
 import urllib.error
 import socketserver
 from http.server import BaseHTTPRequestHandler
-from pathlib import Path
 
 # --- Configuration & SSO Setup ---
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-    from google.auth.transport import requests as google_requests
-    from google.oauth2 import id_token as google_id_token
     GOOGLE_SHEETS_ENABLED = True
 except ImportError:
     GOOGLE_SHEETS_ENABLED = False
+
+try:
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+    GOOGLE_AUTH_ENABLED = True
+except ImportError:
+    GOOGLE_AUTH_ENABLED = False
 
 # Constants
 SHEET_ID = "17zDP-13Blgz4r98HyZWgr3h_X0z8qzxkR6Mdb_-4k7Q"
@@ -243,6 +255,9 @@ class CombinedHandler(BaseHTTPRequestHandler):
                 self.redirect('/login?error=1')
 
     def handle_google_auth(self):
+        if not GOOGLE_AUTH_ENABLED:
+            self.send_error(500, "Google Auth module not available")
+            return
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             token = json.loads(self.rfile.read(content_length))['credential']
