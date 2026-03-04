@@ -84,14 +84,16 @@ def evaluate_response_quality(question, answer):
     try:
         api_key = os.environ.get('OPENWEBUI_API_KEY')
         base_url = os.environ.get('DEFAULT_OPENWEBUI_URL')
-        if not api_key or not base_url: return "N/A"
+        if not api_key or not base_url:
+            print("[EVAL] Skipping - missing API key or URL")
+            return "N/A"
 
         payload = {
             "model": "rag-isi-com",
             "messages": [{"role": "user", "content": f"Évalue la qualité (0-100) de cette réponse à la question posée. Réponds uniquement par le chiffre.\nQ: {question}\nR: {answer}"}],
             "stream": False
         }
-        
+
         target_url = f"{base_url.rstrip('/')}/api/v1/chat/completions"
         req = urllib.request.Request(
             target_url,
@@ -99,15 +101,21 @@ def evaluate_response_quality(question, answer):
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             method='POST'
         )
-        
-        with urllib.request.urlopen(req, timeout=30) as res:
+
+        # Increased timeout to 120 seconds for slow models
+        with urllib.request.urlopen(req, timeout=120) as res:
             res_data = json.loads(res.read().decode('utf-8'))
             score = res_data['choices'][0]['message']['content'].strip()
             import re
             match = re.search(r'(\d+)', score)
-            return f"{match.group(1)}%" if match else "N/A"
+            result = f"{match.group(1)}%" if match else "N/A"
+            print(f"[EVAL] Score received: {result}")
+            return result
+    except urllib.error.URLError as e:
+        print(f"[EVAL] Timeout or connection error: {e}")
+        return "Timeout"
     except Exception as e:
-        print(f"[EVAL] Error: {e}")
+        print(f"[EVAL] Error: {type(e).__name__}: {e}")
         return "Error"
 
 def log_to_sheets(username, question, answer):
@@ -123,7 +131,8 @@ def log_to_sheets(username, question, answer):
         return
 
     def _log_thread():
-        quality_score = evaluate_response_quality(question, answer)
+        # Quality evaluation disabled due to timeout issues
+        quality_score = "N/A"
         try:
             print(f"[SHEETS] Starting sheet operation...")
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
