@@ -46,9 +46,6 @@ CREDENTIALS_FILE = "chatbot-489108-66c1494dfc80.json"
 SESSION_COOKIE_NAME = "chatbot_session"
 PWD_SALT = "isicom_salt_2024"
 
-# Load allowed domains from environment variable
-ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
-
 # Global State
 VALID_SESSIONS = {}  # session_id -> username
 VALID_CREDENTIALS = {
@@ -78,6 +75,9 @@ def load_env():
                         os.environ[k.strip()] = v.strip()
 
 load_env()
+
+# Load allowed domains from environment variable (after .env is loaded)
+ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
 
 def evaluate_response_quality(question, answer):
     """Asks the LLM to evaluate the quality of its own response."""
