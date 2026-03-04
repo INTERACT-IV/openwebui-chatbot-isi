@@ -43,7 +43,7 @@ except ImportError:
 # Constants
 SHEET_ID = "17zDP-13Blgz4r98HyZWgr3h_X0z8qzxkR6Mdb_-4k7Q"
 CREDENTIALS_FILE = "chatbot-489108-66c1494dfc80.json"
-ALLOWED_DOMAINS = ["interactiv-group.com", "isi-com.com"]
+ALLOWED_DOMAINS = ["interactiv-group.com", "isi-com.com", "connectics.fr"]
 SESSION_COOKIE_NAME = "chatbot_session"
 PWD_SALT = "isicom_salt_2024"
 

@@ -8,7 +8,7 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Virtual environment
+# Environnement virtuel
 venv/
 env/
 ENV/
