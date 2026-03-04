@@ -43,9 +43,11 @@ except ImportError:
 # Constants
 SHEET_ID = "17zDP-13Blgz4r98HyZWgr3h_X0z8qzxkR6Mdb_-4k7Q"
 CREDENTIALS_FILE = "chatbot-489108-66c1494dfc80.json"
-ALLOWED_DOMAINS = ["interactiv-group.com", "isi-com.com", "connectics.fr"]
 SESSION_COOKIE_NAME = "chatbot_session"
 PWD_SALT = "isicom_salt_2024"
+
+# Load allowed domains from environment variable
+ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
 
 # Global State
 VALID_SESSIONS = {}  # session_id -> username
