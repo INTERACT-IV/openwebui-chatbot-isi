@@ -23,7 +23,7 @@ try:
     import gspread
     from google.oauth2.service_account import Credentials
     from google.auth.transport import requests as google_requests
-    import google.oauth2.id_token as id_token
+    from google.oauth2 import id_token as google_id_token
     GOOGLE_SHEETS_ENABLED = True
 except ImportError:
     GOOGLE_SHEETS_ENABLED = False
@@ -247,11 +247,11 @@ class CombinedHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             token = json.loads(self.rfile.read(content_length))['credential']
             client_id = os.environ.get('GOOGLE_CLIENT_ID')
-            
-            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+
+            idinfo = google_id_token.verify_token(token, google_requests.Request(), audience=client_id)
             email = idinfo.get('email', '')
             domain = email.split('@')[-1]
-            
+
             if domain in ALLOWED_DOMAINS:
                 sid = str(uuid.uuid4())
                 VALID_SESSIONS[sid] = f"{idinfo.get('name', email)} ({email})"
