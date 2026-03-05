@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenWebUI Chatbot</title>
+    <title>Chatbot ISI-COM</title>
+    <link rel="icon" type="image/png" href="logo_carre.png">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
@@ -199,10 +200,12 @@
 
         body {
             background-color: #f8f9fa;
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
+            padding: 20px 0;
         }
 
         .container {
@@ -268,6 +271,23 @@
             background-color: #f5f5f5;
             border-color: #FB4D0D;
             color: #FB4D0D;
+        }
+
+        .disclaimer {
+            background-color: #fff3cd;
+            border-left: 4px solid #FB4D0D;
+            color: #856404;
+            padding: 12px 20px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            border-bottom: 1px solid #CCC9E3;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 10px 20px;
+            font-size: 0.75rem;
+            color: #999;
         }
 
         .config-section {
@@ -494,7 +514,11 @@
             </div>
             <button id="logoutBtn" class="logout-btn">Déconnexion</button>
         </div>
-        
+
+        <div class="disclaimer">
+            N.B : Les réponses fournies par ce chatbot sont générées par une intelligence artificielle et peuvent comporter des inexactitudes. En cas de doute, consultez la documentation officielle.
+        </div>
+
         <div class="config-section">
         </div>
 
@@ -504,6 +528,10 @@
         <div class="input-area hidden" id="inputArea">
             <input type="text" id="messageInput" placeholder="Tapez votre message ici...">
             <button id="sendBtn">Envoyer</button>
+        </div>
+
+        <div class="footer">
+            © ISI-COM SAS | SIREN : 399 637 990 | 600 rue Felix Trombe - Tecnosud - 66100 Perpignan
         </div>
     </div>
 
