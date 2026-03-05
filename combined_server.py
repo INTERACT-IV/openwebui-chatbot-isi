@@ -79,14 +79,59 @@ load_env()
 # Load allowed domains from environment variable (after .env is loaded)
 ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
 
+def clean_markdown_for_sheets(text):
+    """Nettoie le formatage Markdown pour une meilleure lisibilité dans Google Sheets."""
+    if not text:
+        return text
+    
+    # Préserver les blocs de code avec un préfixe clair
+    import re
+    
+    # Remplacer les blocs de code ```lang ... ``` par un format lisible
+    def replace_code_block(match):
+        lang = match.group(1) or ''
+        code = match.group(2)
+        return f"\n[CODE {lang}]\n{code}\n[/CODE]\n"
+    
+    text = re.sub(r'```(\w*)\n(.*?)```', replace_code_block, text, flags=re.DOTALL)
+    
+    # Code inline `...` 
+    text = re.sub(r'`([^`]+)`', r'[CODE]\1[/CODE]', text)
+    
+    # Gras **text** ou __text__
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'__([^_]+)__', r'\1', text)
+    
+    # Italique *text* ou _text_
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'_([^_]+)_', r'\1', text)
+    
+    # Titres # ## ###
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    
+    # Listes - ou *
+    text = re.sub(r'^[\-\*]\s+', '• ', text, flags=re.MULTILINE)
+    
+    # Listes numérotées 1. 2.
+    text = re.sub(r'^\d+\.\s+', '→ ', text, flags=re.MULTILINE)
+    
+    # Liens [text](url)
+    text = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'\1 (\2)', text)
+    
+    # Supprimer les lignes vides multiples
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
+
+
 def log_to_sheets(username, question, answer):
     """Logs the interaction to Google Sheets."""
     print(f"[SHEETS] Attempting to log for {username}")
-    
+
     if not GOOGLE_SHEETS_ENABLED:
         print(f"[SHEETS] Google Sheets not enabled (missing dependencies)")
         return
-    
+
     if not os.path.exists(CREDENTIALS_FILE):
         print(f"[SHEETS] Credentials file not found: {CREDENTIALS_FILE}")
         return
@@ -105,7 +150,11 @@ def log_to_sheets(username, question, answer):
                 print(f"[SHEETS] Created header row")
 
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([timestamp, username, question, answer])
+            
+            # Nettoyer le Markdown pour une meilleure lisibilité
+            clean_answer = clean_markdown_for_sheets(answer)
+            
+            sheet.append_row([timestamp, username, question, clean_answer])
             print(f"[SHEETS] Logged for {username}")
         except Exception as e:
             print(f"[SHEETS] Error: {type(e).__name__}: {e}")
