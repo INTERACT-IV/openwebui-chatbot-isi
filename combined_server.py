@@ -79,53 +79,190 @@ load_env()
 # Load allowed domains from environment variable (after .env is loaded)
 ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
 
-def clean_markdown_for_sheets(text):
-    """Nettoie le formatage Markdown pour une meilleure lisibilité dans Google Sheets."""
+def parse_markdown_to_segments(text):
+    """
+    Parse Markdown text into segments with formatting info.
+    Returns list of (text, bold, italic, is_code).
+    """
+    if not text:
+        return []
+    
+    import re
+    
+    segments = []
+    i = 0
+    n = len(text)
+    
+    while i < n:
+        # Bold **text**
+        if i < n - 1 and text[i:i+2] == '**':
+            end = text.find('**', i + 2)
+            if end != -1:
+                inner = text[i+2:end]
+                # Check for nested italic
+                nested = parse_markdown_to_segments(inner)
+                if nested:
+                    for seg_text, seg_bold, seg_italic, seg_code in nested:
+                        segments.append((seg_text, True, seg_italic, seg_code))
+                else:
+                    segments.append((inner, True, False, False))
+                i = end + 2
+                continue
+        
+        # Italic *text* (not part of **)
+        elif text[i] == '*' and (i == 0 or text[i-1] != '*'):
+            end = text.find('*', i + 1)
+            if end != -1 and (end + 1 >= n or text[end+1] != '*'):
+                inner = text[i+1:end]
+                segments.append((inner, False, True, False))
+                i = end + 1
+                continue
+        
+        # Inline code `text`
+        elif text[i] == '`':
+            end = text.find('`', i + 1)
+            if end != -1:
+                segments.append((text[i+1:end], False, False, True))
+                i = end + 1
+                continue
+        
+        # Regular text - accumulate until next marker
+        else:
+            next_pos = n
+            for marker in ['**', '*', '`']:
+                pos = text.find(marker, i)
+                if pos != -1 and pos < next_pos:
+                    next_pos = pos
+            
+            if next_pos > i:
+                segments.append((text[i:next_pos], False, False, False))
+                i = next_pos
+            else:
+                i += 1
+    
+    return segments
+
+
+def clean_markdown_text(text):
+    """Remove Markdown syntax from text, keeping content only."""
     if not text:
         return text
     
-    # Préserver les blocs de code avec un préfixe clair
     import re
     
-    # Remplacer les blocs de code ```lang ... ``` par un format lisible
+    clean = text
+    
+    # Code blocks
     def replace_code_block(match):
         lang = match.group(1) or ''
-        code = match.group(2)
-        return f"\n[CODE {lang}]\n{code}\n[/CODE]\n"
+        code = match.group(2).strip()
+        return f"\n[CODE {lang.upper()}]\n{code}\n[FIN CODE]\n"
     
-    text = re.sub(r'```(\w*)\n(.*?)```', replace_code_block, text, flags=re.DOTALL)
+    clean = re.sub(r'```(\w*)\n(.*?)```', replace_code_block, clean, flags=re.DOTALL)
+    clean = re.sub(r'`([^`]+)`', r'\1', clean)
+    clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)
+    clean = re.sub(r'__(.+?)__', r'\1', clean)
+    clean = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'\1', clean)
+    clean = re.sub(r'^#{1,6}\s+', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'^[-*]\s+', '• ', clean, flags=re.MULTILINE)
+    clean = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'\1', clean)
+    clean = re.sub(r'\n{3,}', '\n\n', clean)
     
-    # Code inline `...` 
-    text = re.sub(r'`([^`]+)`', r'[CODE]\1[/CODE]', text)
+    return clean.strip()
+
+
+def apply_rich_formatting(creds, spreadsheet_id, sheet_id, row, col, original_text):
+    """
+    Apply rich text formatting using Google Sheets API v4 HTTP directly.
+    Uses textFormatRuns for character-level formatting.
+    """
+    if not original_text:
+        return
     
-    # Gras **text** ou __text__
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'__([^_]+)__', r'\1', text)
-    
-    # Italique *text* ou _text_
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    text = re.sub(r'_([^_]+)_', r'\1', text)
-    
-    # Titres # ## ###
-    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-    
-    # Listes - ou *
-    text = re.sub(r'^[\-\*]\s+', '• ', text, flags=re.MULTILINE)
-    
-    # Listes numérotées 1. 2.
-    text = re.sub(r'^\d+\.\s+', '→ ', text, flags=re.MULTILINE)
-    
-    # Liens [text](url)
-    text = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'\1 (\2)', text)
-    
-    # Supprimer les lignes vides multiples
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    return text.strip()
+    try:
+        import urllib.request
+        import json
+        from google.auth.transport.requests import Request
+        
+        # Ensure credentials have a valid token
+        if not creds.token or not creds.valid:
+            creds.refresh(Request())
+        
+        clean_text = clean_markdown_text(original_text)
+        segments = parse_markdown_to_segments(original_text)
+        
+        # Build textFormatRuns
+        text_format_runs = []
+        start_index = 0
+        
+        for seg_text, is_bold, is_italic, is_code in segments:
+            if not seg_text:
+                continue
+            
+            format_props = {}
+            if is_bold:
+                format_props["bold"] = True
+            if is_italic:
+                format_props["italic"] = True
+            if is_code:
+                format_props["foregroundColor"] = {"red": 0.5, "green": 0.5, "blue": 0.5}
+                format_props["fontName"] = "Courier New"
+                format_props["fontSize"] = 9
+            
+            if format_props:
+                text_format_runs.append({
+                    "startIndex": start_index,
+                    "format": format_props
+                })
+            
+            start_index += len(seg_text)
+        
+        # Build batchUpdate request
+        body = {
+            "requests": [{
+                "updateCells": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row - 1,
+                        "endRowIndex": row,
+                        "startColumnIndex": col - 1,
+                        "endColumnIndex": col
+                    },
+                    "rows": [{
+                        "values": [{
+                            "userEnteredValue": {"stringValue": clean_text},
+                            "textFormatRuns": text_format_runs
+                        }]
+                    }],
+                    "fields": "userEnteredValue,textFormatRuns"
+                }
+            }]
+        }
+        
+        # Make HTTP request to Sheets API
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
+        headers = {
+            'Authorization': f'Bearer {creds.token}',
+            'Content-Type': 'application/json'
+        }
+        
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            print(f"[SHEETS] Formatting applied successfully")
+        
+    except Exception as e:
+        print(f"[SHEETS] Rich formatting error: {type(e).__name__}: {e}")
 
 
 def log_to_sheets(username, question, answer):
-    """Logs the interaction to Google Sheets."""
+    """Logs the interaction to Google Sheets with rich text formatting."""
     print(f"[SHEETS] Attempting to log for {username}")
 
     if not GOOGLE_SHEETS_ENABLED:
@@ -142,7 +279,8 @@ def log_to_sheets(username, question, answer):
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
             client = gspread.authorize(creds)
-            sheet = client.open_by_key(SHEET_ID).get_worksheet(0)
+            spreadsheet = client.open_by_key(SHEET_ID)
+            sheet = spreadsheet.get_worksheet(0)
             print(f"[SHEETS] Connected to sheet: {SHEET_ID}")
 
             if not sheet.get_all_values():
@@ -151,11 +289,20 @@ def log_to_sheets(username, question, answer):
 
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Nettoyer le Markdown pour une meilleure lisibilité
-            clean_answer = clean_markdown_for_sheets(answer)
+            # Get clean text for the cell value
+            clean_answer = clean_markdown_text(answer)
             
+            # Get next row number before appending
+            next_row = len(sheet.get_all_values()) + 1
+            
+            # Append the row
             sheet.append_row([timestamp, username, question, clean_answer])
-            print(f"[SHEETS] Logged for {username}")
+            
+            # Apply rich formatting using HTTP API directly
+            sheet_id = sheet._properties['sheetId']
+            apply_rich_formatting(creds, SHEET_ID, sheet_id, next_row, 4, answer)
+            
+            print(f"[SHEETS] Logged for {username} (rich formatting)")
         except Exception as e:
             print(f"[SHEETS] Error: {type(e).__name__}: {e}")
 
