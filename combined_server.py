@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Combined HTTP Server for OpenWebUI Chatbot
-Serves webchat.html, handles authentication, and proxies API requests.
+Serveur HTTP combiné pour le chatbot OpenWebUI
+Sert webchat.html, gère l'authentification et proxyfie les requêtes API.
 """
 
 import sys
@@ -81,8 +81,8 @@ ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '
 
 def parse_markdown_to_segments(text):
     """
-    Parse Markdown text into segments with formatting info.
-    Returns list of (text, bold, italic, is_code).
+    Analyse le texte Markdown en segments avec les informations de formatage.
+    Retourne une liste de (texte, gras, italique, est_code).
     """
     if not text:
         return []
@@ -144,7 +144,7 @@ def parse_markdown_to_segments(text):
 
 
 def clean_markdown_text(text):
-    """Remove Markdown syntax from text, keeping content only."""
+    """Supprime la syntaxe Markdown du texte, en gardant uniquement le contenu."""
     if not text:
         return text
     
@@ -173,8 +173,8 @@ def clean_markdown_text(text):
 
 def apply_rich_formatting(creds, spreadsheet_id, sheet_id, row, col, original_text):
     """
-    Apply rich text formatting using Google Sheets API v4 HTTP directly.
-    Uses textFormatRuns for character-level formatting.
+    Applique un formatage de texte enrichi en utilisant l'API HTTP Google Sheets v4 directement.
+    Utilise textFormatRuns pour le formatage au niveau des caractères.
     """
     if not original_text:
         return
@@ -262,7 +262,7 @@ def apply_rich_formatting(creds, spreadsheet_id, sheet_id, row, col, original_te
 
 
 def log_to_sheets(username, question, answer):
-    """Logs the interaction to Google Sheets with rich text formatting."""
+    """Journalise l'interaction dans Google Sheets avec un formatage de texte enrichi."""
     print(f"[SHEETS] Attempting to log for {username}")
 
     if not GOOGLE_SHEETS_ENABLED:
@@ -477,7 +477,7 @@ class CombinedHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(res_data)
 
-                # Async Logging
+                # Journalisation asynchrone
                 if 'chat/completions' in api_endpoint and res.getcode() == 200:
                     self.extract_and_log(req_body, res_data)
 
@@ -506,23 +506,23 @@ class CombinedHandler(BaseHTTPRequestHandler):
                         except json.JSONDecodeError:
                             continue
             else:
-                # Non-streaming response (direct JSON)
+                # Réponse non-streaming (JSON direct)
                 try:
                     res_json = json.loads(res_text)
                     answer = res_json.get('choices', [{}])[0].get('message', {}).get('content', '')
                 except json.JSONDecodeError:
-                    print(f"[LOG] Failed to parse non-streaming response")
+                    print(f"[LOG] Échec de l'analyse de la réponse non-streaming")
                     return
-            
+
             if not answer:
-                print(f"[LOG] No answer extracted")
+                print(f"[LOG] Aucune réponse extraite")
                 return
-                
+
             username = self.get_username() or "unknown"
-            print(f"[LOG] Extracted Q: {question[:50]}... A: {answer[:50]}...")
+            print(f"[LOG] Extrait Q : {question[:50]}... R : {answer[:50]}...")
             log_to_sheets(username, question, answer)
         except Exception as e:
-            print(f"[LOG] Error in extract_and_log: {e}")
+            print(f"[LOG] Erreur dans extract_and_log : {e}")
 
     def send_json(self, data, cookie=None, status=200):
         self.send_response(status)

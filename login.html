@@ -137,7 +137,7 @@
 
     <script>
         function showSection(type) {
-            // Update tabs
+            // Mettre à jour les onglets
             document.querySelectorAll('.tab').forEach(t => {
                 t.classList.remove('active');
                 const isIsi = (type === 'isi');
@@ -146,11 +146,11 @@
                 }
             });
 
-            // Update sections
+            // Mettre à jour les sections
             document.querySelectorAll('.auth-section').forEach(s => s.classList.remove('active'));
             document.getElementById('section-' + type).classList.add('active');
 
-            // Clear errors
+            // Effacer les erreurs
             const genErr = document.getElementById('general-error');
             const usrErr = document.getElementById('username-error-text');
             const pwdErr = document.getElementById('password-error-text');
@@ -171,7 +171,7 @@
                     e.preventDefault();
                     e.stopPropagation();
 
-                    // Clear previous errors
+                    // Effacer les erreurs précédentes
                     if (usernameErrorText) usernameErrorText.style.display = 'none';
                     if (passwordErrorText) passwordErrorText.style.display = 'none';
                     if (generalError) generalError.style.display = 'none';
@@ -236,7 +236,7 @@
                 });
             }
 
-            // Allow Enter key to submit
+            // Autoriser la touche Entrée à soumettre le formulaire
             if (loginForm) {
                 loginForm.addEventListener('keypress', function(e) {
                     if (e.key === 'Enter') {
@@ -246,7 +246,7 @@
                 });
             }
 
-            // Check for error on page load (legacy support)
+            // Vérifier la présence d'une erreur au chargement de la page (support hérité)
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('error')) {
                 showSection('externe');
