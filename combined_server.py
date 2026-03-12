@@ -597,7 +597,10 @@ class CombinedHandler(BaseHTTPRequestHandler):
             VALID_SESSIONS[session_id] = username
             print(f"[DEBUG] Session created: {session_id} -> {username}")
 
-            cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly"
+            # Add Secure flag for HTTPS
+            cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax"
+            if KEYCLOAK_ISSUER and KEYCLOAK_ISSUER.startswith('https://'):
+                cookie += "; Secure"
             print(f"[DEBUG] Redirecting to / with cookie")
             self.redirect('/', cookie)
 
