@@ -1,0 +1,30 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+To get the application URL by running:
+
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "openwebui-chatbot.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  echo "Visit http://127.0.0.1:8081 to use your application"
+  kubectl port-forward $POD_NAME 8081:{{ .Values.service.port }}
+
+IMPORTANT: Make sure to set all required environment variables:
+  - OPENWEBUI_API_KEY (required): Your OpenWebUI API key
+
+You can update these values by running:
+  helm upgrade {{ .Release.Name }} . --set secretEnv.OPENWEBUI_API_KEY=your-api-key
+
+All configuration is managed through the secret (as per .env.example):
+  - OPENWEBUI_API_KEY (required)
+  - DEFAULT_OPENWEBUI_URL
+  - GOOGLE_CLIENT_ID
+  - GOOGLE_ALLOWED_DOMAINS
+  - KEYCLOAK_ISSUER
+  - KEYCLOAK_CLIENT_ID
+  - KEYCLOAK_CLIENT_SECRET
+  - KEYCLOAK_REDIRECT_URI

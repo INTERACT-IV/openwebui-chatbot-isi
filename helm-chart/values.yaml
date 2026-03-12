@@ -1,0 +1,84 @@
+# Default values for openwebui-chatbot
+
+replicaCount: 1
+
+image:
+  repository: localhost/openwebui-chatbot
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8081
+  targetPort: 8081
+
+# No ingress - using Calico with ClusterIP
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8081
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# All environment variables go to secret (as per .env.example)
+# Required
+secretEnv:
+  OPENWEBUI_API_KEY: ""
+  
+  # Optional - OpenWebUI
+  DEFAULT_OPENWEBUI_URL: ""
+  
+  # Optional - Google OAuth
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_ALLOWED_DOMAINS: ""
+  
+  # Optional - Keycloak
+  KEYCLOAK_ISSUER: ""
+  KEYCLOAK_CLIENT_ID: ""
+  KEYCLOAK_CLIENT_SECRET: ""
+  KEYCLOAK_REDIRECT_URI: ""
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
