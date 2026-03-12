@@ -351,8 +351,14 @@ class CombinedHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        print(f"[DEBUG] GET {self.path}")
+        cookie_value = self.get_cookie(SESSION_COOKIE_NAME)
+        print(f"[DEBUG] Session cookie: {cookie_value}")
+        print(f"[DEBUG] Is authenticated: {cookie_value in VALID_SESSIONS if cookie_value else False}")
+        
         if self.path in ['/login', '/login.html']:
             if self.is_authenticated():
+                print(f"[DEBUG] Already authenticated, redirecting to /")
                 self.redirect('/')
             else:
                 self.serve_file("login.html")
@@ -367,10 +373,12 @@ class CombinedHandler(BaseHTTPRequestHandler):
             return
 
         if not self.is_authenticated():
+            print(f"[DEBUG] Not authenticated, redirecting to /login")
             self.redirect('/login')
             return
 
         if self.path in ['/', '/webchat.html']:
+            print(f"[DEBUG] Serving webchat.html")
             self.serve_file("webchat.html")
         elif self.path.startswith('/proxy/'):
             self.handle_proxy_request()
@@ -392,8 +400,12 @@ class CombinedHandler(BaseHTTPRequestHandler):
     def redirect(self, location, cookie=None):
         self.send_response(302)
         self.send_header('Location', location)
-        if cookie: self.send_header('Set-Cookie', cookie)
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
+            print(f"[DEBUG] Setting cookie: {cookie}")
         self.end_headers()
+        # Explicitly return to avoid further processing
+        return
 
     def serve_file(self, filename):
         try:
@@ -469,7 +481,41 @@ class CombinedHandler(BaseHTTPRequestHandler):
     def handle_keycloak_login(self):
         """Redirect to Keycloak for authentication"""
         if not KEYCLOAK_AUTH_URL or not KEYCLOAK_CLIENT_ID:
-            self.send_error(500, "Keycloak configuration missing")
+            print("[ERROR] Keycloak configuration missing!")
+            print(f"  KEYCLOAK_ISSUER: {KEYCLOAK_ISSUER}")
+            print(f"  KEYCLOAK_CLIENT_ID: {KEYCLOAK_CLIENT_ID}")
+            print(f"  KEYCLOAK_AUTH_URL: {KEYCLOAK_AUTH_URL}")
+            self.send_response(500)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            error_html = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Erreur de configuration</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 5px; }
+        h1 { color: #721c24; }
+        a { color: #717AB9; }
+    </style>
+</head>
+<body>
+    <h1>Erreur de configuration Keycloak</h1>
+    <div class="error">
+        <p>L'authentification Keycloak n'est pas configurée correctement.</p>
+        <p>Veuillez définir les variables d'environnement suivantes dans un fichier <code>.env</code> :</p>
+        <ul>
+            <li><code>KEYCLOAK_ISSUER</code></li>
+            <li><code>KEYCLOAK_CLIENT_ID</code></li>
+            <li><code>KEYCLOAK_CLIENT_SECRET</code></li>
+            <li><code>KEYCLOAK_REDIRECT_URI</code></li>
+        </ul>
+    </div>
+    <p><a href="/login">← Retour à la connexion</a></p>
+</body>
+</html>"""
+            self.wfile.write(error_html.encode('utf-8'))
             return
 
         # Generate state parameter for CSRF protection
@@ -495,9 +541,12 @@ class CombinedHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
 
+            print(f"[DEBUG] Callback received. Query: {parsed.query}")
+
             # Check for error
             if 'error' in params:
                 error = params.get('error', ['Unknown error'])[0]
+                print(f"[ERROR] Auth error: {error}")
                 self.send_error(400, f"Authentication error: {error}")
                 return
 
@@ -505,29 +554,40 @@ class CombinedHandler(BaseHTTPRequestHandler):
             code = params.get('code', [None])[0]
             state = params.get('state', [None])[0]
 
+            print(f"[DEBUG] Code: {code is not None}, State: {state is not None}")
+
             if not code or not state:
+                print(f"[ERROR] Missing code or state")
                 self.send_error(400, "Missing code or state parameter")
                 return
 
             # Validate state
             if state not in OAUTH_STATES:
+                print(f"[ERROR] Invalid state. Available states: {list(OAUTH_STATES.keys())}")
                 self.send_error(400, "Invalid state parameter")
                 return
 
             session_id = OAUTH_STATES.pop(state)
+            print(f"[DEBUG] Session ID: {session_id}")
 
             # Exchange code for token
             token_data = self.exchange_code_for_token(code)
             if not token_data:
+                print(f"[ERROR] Failed to exchange code for token")
                 self.send_error(500, "Failed to exchange code for token")
                 return
+
+            print(f"[DEBUG] Token obtained successfully")
 
             # Get user info
             access_token = token_data.get('access_token', '')
             user_info = self.get_user_info(access_token)
             if not user_info:
+                print(f"[ERROR] Failed to get user info")
                 self.send_error(500, "Failed to get user info")
                 return
+
+            print(f"[DEBUG] User info: {user_info.get('email', 'no email')}")
 
             # Create session
             email = user_info.get('email', '')
@@ -535,10 +595,16 @@ class CombinedHandler(BaseHTTPRequestHandler):
             username = f"{name} ({email})" if email else name
 
             VALID_SESSIONS[session_id] = username
+            print(f"[DEBUG] Session created: {session_id} -> {username}")
+
             cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly"
+            print(f"[DEBUG] Redirecting to / with cookie")
             self.redirect('/', cookie)
 
         except Exception as e:
+            print(f"[ERROR] Exception in callback: {e}")
+            import traceback
+            traceback.print_exc()
             self.send_error(400, str(e))
 
     def exchange_code_for_token(self, code):
