@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.error
 import socketserver
 from http.server import BaseHTTPRequestHandler
+from urllib.parse import urlencode, parse_qs, urlparse
 
 # --- Configuration & SSO Setup ---
 try:
@@ -78,6 +79,21 @@ load_env()
 
 # Load allowed domains from environment variable (after .env is loaded)
 ALLOWED_DOMAINS = [d.strip() for d in os.environ.get('GOOGLE_ALLOWED_DOMAINS', '').split(',') if d.strip()]
+
+# Keycloak configuration
+KEYCLOAK_ISSUER = os.environ.get('KEYCLOAK_ISSUER', '')
+KEYCLOAK_CLIENT_ID = os.environ.get('KEYCLOAK_CLIENT_ID', '')
+KEYCLOAK_CLIENT_SECRET = os.environ.get('KEYCLOAK_CLIENT_SECRET', '')
+KEYCLOAK_REDIRECT_URI = os.environ.get('KEYCLOAK_REDIRECT_URI', '')
+
+# Derive Keycloak endpoints from issuer
+KEYCLOAK_AUTH_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/auth" if KEYCLOAK_ISSUER else ''
+KEYCLOAK_TOKEN_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/token" if KEYCLOAK_ISSUER else ''
+KEYCLOAK_USERINFO_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/userinfo" if KEYCLOAK_ISSUER else ''
+KEYCLOAK_LOGOUT_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/logout" if KEYCLOAK_ISSUER else ''
+
+# State for OAuth2 flow (state -> session_id mapping)
+OAUTH_STATES = {}  # state -> session_id
 
 def parse_markdown_to_segments(text):
     """
@@ -342,6 +358,14 @@ class CombinedHandler(BaseHTTPRequestHandler):
                 self.serve_file("login.html")
             return
 
+        # Allow Keycloak auth endpoints without authentication
+        if self.path == '/auth/keycloak':
+            self.handle_keycloak_login()
+            return
+        elif self.path == '/auth/callback':
+            self.handle_keycloak_callback()
+            return
+
         if not self.is_authenticated():
             self.redirect('/login')
             return
@@ -441,6 +465,113 @@ class CombinedHandler(BaseHTTPRequestHandler):
                 self.send_error(403, "Domain not allowed")
         except Exception as e:
             self.send_error(400, str(e))
+
+    def handle_keycloak_login(self):
+        """Redirect to Keycloak for authentication"""
+        if not KEYCLOAK_AUTH_URL or not KEYCLOAK_CLIENT_ID:
+            self.send_error(500, "Keycloak configuration missing")
+            return
+
+        # Generate state parameter for CSRF protection
+        state = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())
+        OAUTH_STATES[state] = session_id
+
+        # Build authorization URL
+        params = {
+            'client_id': KEYCLOAK_CLIENT_ID,
+            'redirect_uri': KEYCLOAK_REDIRECT_URI,
+            'response_type': 'code',
+            'scope': 'openid email profile',
+            'state': state,
+        }
+        auth_url = f"{KEYCLOAK_AUTH_URL}?{urlencode(params)}"
+        self.redirect(auth_url)
+
+    def handle_keycloak_callback(self):
+        """Handle callback from Keycloak after authentication"""
+        try:
+            # Parse query parameters
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+
+            # Check for error
+            if 'error' in params:
+                error = params.get('error', ['Unknown error'])[0]
+                self.send_error(400, f"Authentication error: {error}")
+                return
+
+            # Get code and state
+            code = params.get('code', [None])[0]
+            state = params.get('state', [None])[0]
+
+            if not code or not state:
+                self.send_error(400, "Missing code or state parameter")
+                return
+
+            # Validate state
+            if state not in OAUTH_STATES:
+                self.send_error(400, "Invalid state parameter")
+                return
+
+            session_id = OAUTH_STATES.pop(state)
+
+            # Exchange code for token
+            token_data = self.exchange_code_for_token(code)
+            if not token_data:
+                self.send_error(500, "Failed to exchange code for token")
+                return
+
+            # Get user info
+            access_token = token_data.get('access_token', '')
+            user_info = self.get_user_info(access_token)
+            if not user_info:
+                self.send_error(500, "Failed to get user info")
+                return
+
+            # Create session
+            email = user_info.get('email', '')
+            name = user_info.get('name', user_info.get('preferred_username', email))
+            username = f"{name} ({email})" if email else name
+
+            VALID_SESSIONS[session_id] = username
+            cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly"
+            self.redirect('/', cookie)
+
+        except Exception as e:
+            self.send_error(400, str(e))
+
+    def exchange_code_for_token(self, code):
+        """Exchange authorization code for access token"""
+        try:
+            data = urlencode({
+                'grant_type': 'authorization_code',
+                'client_id': KEYCLOAK_CLIENT_ID,
+                'client_secret': KEYCLOAK_CLIENT_SECRET,
+                'code': code,
+                'redirect_uri': KEYCLOAK_REDIRECT_URI,
+            }).encode('utf-8')
+
+            req = urllib.request.Request(KEYCLOAK_TOKEN_URL, data=data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+
+            with urllib.request.urlopen(req, timeout=30) as res:
+                return json.loads(res.read().decode('utf-8'))
+        except Exception as e:
+            print(f"Token exchange error: {e}")
+            return None
+
+    def get_user_info(self, access_token):
+        """Get user info from Keycloak"""
+        try:
+            req = urllib.request.Request(KEYCLOAK_USERINFO_URL)
+            req.add_header('Authorization', f'Bearer {access_token}')
+
+            with urllib.request.urlopen(req, timeout=30) as res:
+                return json.loads(res.read().decode('utf-8'))
+        except Exception as e:
+            print(f"User info error: {e}")
+            return None
 
     def handle_proxy_request(self):
         api_endpoint = self.path[len('/proxy/'):]

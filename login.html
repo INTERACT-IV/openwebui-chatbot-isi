@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chatbot ISI-COM - Connexion</title>
     <link rel="icon" type="image/png" href="https://www.isi-com.com/wp-content/uploads/2022/10/cropped-isi-com-square-32x32.png" sizes="32x32" />
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         * {
             margin: 0;
@@ -97,18 +96,13 @@
                 <div class="tab" onclick="showSection('externe')">Accès externe</div>
             </div>
 
-            <!-- Section Google SSO (ISI-COM) -->
+            <!-- Section Keycloak SSO (ISI-COM) -->
             <div id="section-isi" class="auth-section active">
-                <div id="google-container">
-                    <p class="info-text">Utilisez votre compte Google ISI-COM pour accéder au chatbot.</p>
-                    <div id="g_id_onload"
-                         data-client_id="204542000745-d9gs9r0t84toh4l3i1816qb585b387gq.apps.googleusercontent.com"
-                         data-context="signin"
-                         data-ux_mode="popup"
-                         data-callback="handleCredentialResponse"
-                         data-auto_prompt="false">
-                    </div>
-                    <div class="g_id_signin" data-type="standard" data-shape="rectangular" data-theme="outline" data-text="signin_with" data-size="large" data-logo_alignment="left"></div>
+                <div id="keycloak-container">
+                    <p class="info-text">Utilisez votre compte ISI-COM pour accéder au chatbot.</p></br>
+                    <button type="button" id="keycloak-login-btn" class="btn-submit" style="background-color: #717AB9;">
+                        Se connecter
+                    </button>
                 </div>
             </div>
 
@@ -255,35 +249,15 @@
                     generalError.style.display = 'block';
                 }
             }
-        });
 
-        async function handleCredentialResponse(response) {
-            const generalError = document.getElementById('general-error');
-            if (generalError) generalError.style.display = 'none';
-            
-            try {
-                const res = await fetch('/auth/google', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ credential: response.credential })
+            // Keycloak login button handler
+            const keycloakLoginBtn = document.getElementById('keycloak-login-btn');
+            if (keycloakLoginBtn) {
+                keycloakLoginBtn.addEventListener('click', function() {
+                    window.location.href = '/auth/keycloak';
                 });
-
-                if (res.ok) {
-                    window.location.href = '/';
-                } else {
-                    if (generalError) {
-                        generalError.textContent = "Accès refusé : Votre compte doit appartenir à interactiv-group.com ou isi-com.com.";
-                        generalError.style.display = 'block';
-                    }
-                }
-            } catch (err) {
-                console.error("Erreur auth:", err);
-                if (generalError) {
-                    generalError.textContent = "Erreur lors de l'authentification Google.";
-                    generalError.style.display = 'block';
-                }
             }
-        }
+        });
     </script>
 </body>
 </html>
