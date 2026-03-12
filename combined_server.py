@@ -355,8 +355,11 @@ class CombinedHandler(BaseHTTPRequestHandler):
         cookie_value = self.get_cookie(SESSION_COOKIE_NAME)
         print(f"[DEBUG] Session cookie: {cookie_value}")
         print(f"[DEBUG] Is authenticated: {cookie_value in VALID_SESSIONS if cookie_value else False}")
-        
-        if self.path in ['/login', '/login.html']:
+
+        # Parse path without query parameters for route matching
+        parsed_path = urlparse(self.path).path
+
+        if parsed_path in ['/login', '/login.html']:
             if self.is_authenticated():
                 print(f"[DEBUG] Already authenticated, redirecting to /")
                 self.redirect('/')
@@ -365,10 +368,10 @@ class CombinedHandler(BaseHTTPRequestHandler):
             return
 
         # Allow Keycloak auth endpoints without authentication
-        if self.path == '/auth/keycloak':
+        if parsed_path == '/auth/keycloak':
             self.handle_keycloak_login()
             return
-        elif self.path == '/auth/callback':
+        elif parsed_path == '/auth/callback':
             self.handle_keycloak_callback()
             return
 
@@ -377,22 +380,23 @@ class CombinedHandler(BaseHTTPRequestHandler):
             self.redirect('/login')
             return
 
-        if self.path in ['/', '/webchat.html']:
+        if parsed_path in ['/', '/webchat.html']:
             print(f"[DEBUG] Serving webchat.html")
             self.serve_file("webchat.html")
-        elif self.path.startswith('/proxy/'):
+        elif parsed_path.startswith('/proxy/'):
             self.handle_proxy_request()
-        elif self.path == '/logout':
+        elif parsed_path == '/logout':
             self.handle_logout()
         else:
             self.send_error(404)
 
     def do_POST(self):
-        if self.path == '/login':
+        parsed_path = urlparse(self.path).path
+        if parsed_path == '/login':
             self.handle_login()
-        elif self.path == '/auth/google':
+        elif parsed_path == '/auth/google':
             self.handle_google_auth()
-        elif self.is_authenticated() and self.path.startswith('/proxy/'):
+        elif self.is_authenticated() and parsed_path.startswith('/proxy/'):
             self.handle_proxy_request()
         else:
             self.send_error(403 if not self.is_authenticated() else 404)
@@ -600,16 +604,19 @@ class CombinedHandler(BaseHTTPRequestHandler):
 
             # Add Secure flag for HTTPS
             cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax"
-            if KEYCLOAK_ISSUER and KEYCLOAK_ISSUER.startswith('https://'):
+            # Only add Secure flag if BOTH Keycloak AND local server are HTTPS
+            is_https = KEYCLOAK_ISSUER and KEYCLOAK_ISSUER.startswith('https://')
+            # Don't add Secure for local HTTP development
+            if is_https and os.environ.get('SERVER_HTTPS', '').lower() == 'true':
                 cookie += "; Secure"
             print(f"[DEBUG] Setting cookie: {cookie}")
-            
-            # Redirect to /webchat.html directly to avoid auth check loop
+
+            # Redirect to / (which will serve webchat.html for authenticated users)
             self.send_response(302)
-            self.send_header('Location', '/webchat.html')
+            self.send_header('Location', '/')
             self.send_header('Set-Cookie', cookie)
             self.end_headers()
-            print(f"[DEBUG] Redirecting to /webchat.html")
+            print(f"[DEBUG] Redirecting to /")
             print(f"[DEBUG] === CALLBACK COMPLETED ===")
             return
 
