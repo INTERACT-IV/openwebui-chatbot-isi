@@ -596,13 +596,22 @@ class CombinedHandler(BaseHTTPRequestHandler):
 
             VALID_SESSIONS[session_id] = username
             print(f"[DEBUG] Session created: {session_id} -> {username}")
+            print(f"[DEBUG] VALID_SESSIONS now contains: {list(VALID_SESSIONS.keys())}")
 
             # Add Secure flag for HTTPS
             cookie = f"{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax"
             if KEYCLOAK_ISSUER and KEYCLOAK_ISSUER.startswith('https://'):
                 cookie += "; Secure"
-            print(f"[DEBUG] Redirecting to / with cookie")
-            self.redirect('/', cookie)
+            print(f"[DEBUG] Setting cookie: {cookie}")
+            
+            # Redirect to /webchat.html directly to avoid auth check loop
+            self.send_response(302)
+            self.send_header('Location', '/webchat.html')
+            self.send_header('Set-Cookie', cookie)
+            self.end_headers()
+            print(f"[DEBUG] Redirecting to /webchat.html")
+            print(f"[DEBUG] === CALLBACK COMPLETED ===")
+            return
 
         except Exception as e:
             print(f"[ERROR] Exception in callback: {e}")
