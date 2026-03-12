@@ -443,7 +443,7 @@ class CombinedHandler(BaseHTTPRequestHandler):
         if user_exists and pwd_ok:
             sid = str(uuid.uuid4())
             VALID_SESSIONS[sid] = username
-            cookie = f"{SESSION_COOKIE_NAME}={sid}; Path=/; HttpOnly"
+            cookie = f"{SESSION_COOKIE_NAME}={sid}; Path=/; HttpOnly; SameSite=Lax"
             if is_json:
                 self.send_json({'status': 'success', 'redirect': '/'}, cookie)
             else:
