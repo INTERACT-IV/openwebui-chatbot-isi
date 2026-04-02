@@ -18,7 +18,6 @@ import base64
 import hashlib
 import uuid
 import datetime
-import threading
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -28,13 +27,6 @@ from urllib.parse import urlencode, parse_qs, urlparse
 
 # --- Configuration & SSO Setup ---
 try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-    GOOGLE_SHEETS_ENABLED = True
-except ImportError:
-    GOOGLE_SHEETS_ENABLED = False
-
-try:
     from google.auth.transport import requests as google_requests
     from google.oauth2 import id_token as google_id_token
     GOOGLE_AUTH_ENABLED = True
@@ -42,8 +34,6 @@ except ImportError:
     GOOGLE_AUTH_ENABLED = False
 
 # Constants
-SHEET_ID = "17zDP-13Blgz4r98HyZWgr3h_X0z8qzxkR6Mdb_-4k7Q"
-CREDENTIALS_FILE = "chatbot-489108-66c1494dfc80.json"
 SESSION_COOKIE_NAME = "chatbot_session"
 PWD_SALT = "isicom_salt_2024"
 
@@ -96,234 +86,6 @@ KEYCLOAK_LOGOUT_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/logout" if KEY
 # State for OAuth2 flow (state -> session_id mapping)
 OAUTH_STATES = {}  # state -> session_id
 
-def parse_markdown_to_segments(text):
-    """
-    Analyse le texte Markdown en segments avec les informations de formatage.
-    Retourne une liste de (texte, gras, italique, est_code).
-    """
-    if not text:
-        return []
-    
-    import re
-    
-    segments = []
-    i = 0
-    n = len(text)
-    
-    while i < n:
-        # Bold **text**
-        if i < n - 1 and text[i:i+2] == '**':
-            end = text.find('**', i + 2)
-            if end != -1:
-                inner = text[i+2:end]
-                # Check for nested italic
-                nested = parse_markdown_to_segments(inner)
-                if nested:
-                    for seg_text, seg_bold, seg_italic, seg_code in nested:
-                        segments.append((seg_text, True, seg_italic, seg_code))
-                else:
-                    segments.append((inner, True, False, False))
-                i = end + 2
-                continue
-        
-        # Italic *text* (not part of **)
-        elif text[i] == '*' and (i == 0 or text[i-1] != '*'):
-            end = text.find('*', i + 1)
-            if end != -1 and (end + 1 >= n or text[end+1] != '*'):
-                inner = text[i+1:end]
-                segments.append((inner, False, True, False))
-                i = end + 1
-                continue
-        
-        # Inline code `text`
-        elif text[i] == '`':
-            end = text.find('`', i + 1)
-            if end != -1:
-                segments.append((text[i+1:end], False, False, True))
-                i = end + 1
-                continue
-        
-        # Regular text - accumulate until next marker
-        else:
-            next_pos = n
-            for marker in ['**', '*', '`']:
-                pos = text.find(marker, i)
-                if pos != -1 and pos < next_pos:
-                    next_pos = pos
-            
-            if next_pos > i:
-                segments.append((text[i:next_pos], False, False, False))
-                i = next_pos
-            else:
-                i += 1
-    
-    return segments
-
-
-def clean_markdown_text(text):
-    """Supprime la syntaxe Markdown du texte, en gardant uniquement le contenu."""
-    if not text:
-        return text
-    
-    import re
-    
-    clean = text
-    
-    # Code blocks
-    def replace_code_block(match):
-        lang = match.group(1) or ''
-        code = match.group(2).strip()
-        return f"\n[CODE {lang.upper()}]\n{code}\n[FIN CODE]\n"
-    
-    clean = re.sub(r'```(\w*)\n(.*?)```', replace_code_block, clean, flags=re.DOTALL)
-    clean = re.sub(r'`([^`]+)`', r'\1', clean)
-    clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)
-    clean = re.sub(r'__(.+?)__', r'\1', clean)
-    clean = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'\1', clean)
-    clean = re.sub(r'^#{1,6}\s+', '', clean, flags=re.MULTILINE)
-    clean = re.sub(r'^[-*]\s+', '• ', clean, flags=re.MULTILINE)
-    clean = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'\1', clean)
-    clean = re.sub(r'\n{3,}', '\n\n', clean)
-    
-    return clean.strip()
-
-
-def apply_rich_formatting(creds, spreadsheet_id, sheet_id, row, col, original_text):
-    """
-    Applique un formatage de texte enrichi en utilisant l'API HTTP Google Sheets v4 directement.
-    Utilise textFormatRuns pour le formatage au niveau des caractères.
-    """
-    if not original_text:
-        return
-    
-    try:
-        import urllib.request
-        import json
-        from google.auth.transport.requests import Request
-        
-        # Ensure credentials have a valid token
-        if not creds.token or not creds.valid:
-            creds.refresh(Request())
-        
-        clean_text = clean_markdown_text(original_text)
-        segments = parse_markdown_to_segments(original_text)
-        
-        # Build textFormatRuns
-        text_format_runs = []
-        start_index = 0
-        
-        for seg_text, is_bold, is_italic, is_code in segments:
-            if not seg_text:
-                continue
-            
-            format_props = {}
-            if is_bold:
-                format_props["bold"] = True
-            if is_italic:
-                format_props["italic"] = True
-            if is_code:
-                format_props["foregroundColor"] = {"red": 0.5, "green": 0.5, "blue": 0.5}
-                format_props["fontName"] = "Courier New"
-                format_props["fontSize"] = 9
-            
-            if format_props:
-                text_format_runs.append({
-                    "startIndex": start_index,
-                    "format": format_props
-                })
-            
-            start_index += len(seg_text)
-        
-        # Build batchUpdate request
-        body = {
-            "requests": [{
-                "updateCells": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": row - 1,
-                        "endRowIndex": row,
-                        "startColumnIndex": col - 1,
-                        "endColumnIndex": col
-                    },
-                    "rows": [{
-                        "values": [{
-                            "userEnteredValue": {"stringValue": clean_text},
-                            "textFormatRuns": text_format_runs
-                        }]
-                    }],
-                    "fields": "userEnteredValue,textFormatRuns"
-                }
-            }]
-        }
-        
-        # Make HTTP request to Sheets API
-        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
-        headers = {
-            'Authorization': f'Bearer {creds.token}',
-            'Content-Type': 'application/json'
-        }
-        
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode('utf-8'),
-            headers=headers,
-            method='POST'
-        )
-        
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            print(f"[SHEETS] Formatting applied successfully")
-        
-    except Exception as e:
-        print(f"[SHEETS] Rich formatting error: {type(e).__name__}: {e}")
-
-
-def log_to_sheets(username, question, answer):
-    """Journalise l'interaction dans Google Sheets avec un formatage de texte enrichi."""
-    print(f"[SHEETS] Attempting to log for {username}")
-
-    if not GOOGLE_SHEETS_ENABLED:
-        print(f"[SHEETS] Google Sheets not enabled (missing dependencies)")
-        return
-
-    if not os.path.exists(CREDENTIALS_FILE):
-        print(f"[SHEETS] Credentials file not found: {CREDENTIALS_FILE}")
-        return
-
-    def _log_thread():
-        try:
-            print(f"[SHEETS] Starting sheet operation...")
-            scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
-            client = gspread.authorize(creds)
-            spreadsheet = client.open_by_key(SHEET_ID)
-            sheet = spreadsheet.get_worksheet(0)
-            print(f"[SHEETS] Connected to sheet: {SHEET_ID}")
-
-            if not sheet.get_all_values():
-                sheet.append_row(["Timestamp", "User", "Question", "Answer"])
-                print(f"[SHEETS] Created header row")
-
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Get clean text for the cell value
-            clean_answer = clean_markdown_text(answer)
-            
-            # Get next row number before appending
-            next_row = len(sheet.get_all_values()) + 1
-            
-            # Append the row
-            sheet.append_row([timestamp, username, question, clean_answer])
-            
-            # Apply rich formatting using HTTP API directly
-            sheet_id = sheet._properties['sheetId']
-            apply_rich_formatting(creds, SHEET_ID, sheet_id, next_row, 4, answer)
-            
-            print(f"[SHEETS] Logged for {username} (rich formatting)")
-        except Exception as e:
-            print(f"[SHEETS] Error: {type(e).__name__}: {e}")
-
-    threading.Thread(target=_log_thread).start()
 
 # --- Server Handler ---
 class CombinedHandler(BaseHTTPRequestHandler):
@@ -737,7 +499,6 @@ class CombinedHandler(BaseHTTPRequestHandler):
 
             username = self.get_username() or "unknown"
             print(f"[LOG] Extrait Q : {question[:50]}... R : {answer[:50]}...")
-            log_to_sheets(username, question, answer)
         except Exception as e:
             print(f"[LOG] Erreur dans extract_and_log : {e}")
 
