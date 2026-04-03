@@ -502,6 +502,53 @@
             to { transform: rotate(360deg); }
         }
 
+        /* Thinking indicator animation */
+        .thinking-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 0;
+        }
+
+        .thinking-text {
+            color: #717AB9;
+            font-size: 0.9rem;
+            font-style: italic;
+            margin-left: 8px;
+        }
+
+        .thinking-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #717AB9;
+            border-radius: 50%;
+            display: inline-block;
+            animation: thinking-bounce 1.4s infinite ease-in-out both;
+        }
+
+        .thinking-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .thinking-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        .thinking-dot:nth-child(3) {
+            animation-delay: 0s;
+        }
+
+        @keyframes thinking-bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
         @media (max-width: 600px) {
             .container {
                 width: 100%;
@@ -755,9 +802,18 @@
                     messageDiv.classList.add('message', 'bot-message');
                     const contentDiv = document.createElement('div');
                     contentDiv.className = 'message-content';
+                    
+                    // Ajouter un indicateur de thinking animé
+                    const thinkingIndicator = document.createElement('div');
+                    thinkingIndicator.className = 'thinking-indicator';
+                    thinkingIndicator.innerHTML = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-text">Réflexion en cours</span>';
+                    contentDiv.appendChild(thinkingIndicator);
+                    
                     messageDiv.appendChild(contentDiv);
                     chatContainer.appendChild(messageDiv);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
 
+                    let hasReceivedContent = false;
 
                     while (true) {
                         const { done, value } = await reader.read();
@@ -786,16 +842,42 @@
 
                                     try {
                                         const data = JSON.parse(dataStr);
+                                        
+                                        // Debug: afficher le premier chunk reçu
+                                        if (!hasReceivedContent) {
+                                            console.log('[DEBUG] Chunk reçu:', JSON.stringify(data).substring(0, 200));
+                                        }
 
+                                        // Essayer delta.content (format OpenAI standard)
                                         if (data.choices && data.choices[0].delta?.content) {
                                             const content = data.choices[0].delta.content;
+                                            
+                                            // Retirer l'indicateur de thinking dès le premier contenu
+                                            if (!hasReceivedContent) {
+                                                thinkingIndicator.remove();
+                                                hasReceivedContent = true;
+                                            }
+                                            
+                                            assistantMessage += content;
+                                            contentDiv.innerHTML = marked.parse(assistantMessage);
+                                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                                        }
+                                        // Essayer message.content (autre format possible)
+                                        else if (data.choices && data.choices[0].message?.content) {
+                                            const content = data.choices[0].message.content;
+                                            
+                                            if (!hasReceivedContent) {
+                                                thinkingIndicator.remove();
+                                                hasReceivedContent = true;
+                                            }
+                                            
                                             assistantMessage += content;
                                             contentDiv.innerHTML = marked.parse(assistantMessage);
                                             chatContainer.scrollTop = chatContainer.scrollHeight;
                                         }
                                     } catch (e) {
                                         // Ignorer les lignes JSON malformées
-                                        console.log('Ligne malformée ignorée :', dataStr);
+                                        console.log('[DEBUG] Ligne ignorée:', dataStr.substring(0, 100));
                                     }
                                 }
                             }
@@ -816,8 +898,28 @@
                                 try {
                                     const data = JSON.parse(dataStr);
 
+                                    // Essayer delta.content
                                     if (data.choices && data.choices[0].delta?.content) {
                                         const content = data.choices[0].delta.content;
+                                        
+                                        if (!hasReceivedContent) {
+                                            thinkingIndicator.remove();
+                                            hasReceivedContent = true;
+                                        }
+                                        
+                                        assistantMessage += content;
+                                        contentDiv.innerHTML = marked.parse(assistantMessage);
+                                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                                    }
+                                    // Essayer message.content
+                                    else if (data.choices && data.choices[0].message?.content) {
+                                        const content = data.choices[0].message.content;
+                                        
+                                        if (!hasReceivedContent) {
+                                            thinkingIndicator.remove();
+                                            hasReceivedContent = true;
+                                        }
+                                        
                                         assistantMessage += content;
                                         contentDiv.innerHTML = marked.parse(assistantMessage);
                                         chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -829,6 +931,11 @@
                         }
                     }
                     chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    // Retirer l'indicateur de thinking s'il est toujours présent (au cas où)
+                    if (thinkingIndicator.parentElement) {
+                        thinkingIndicator.remove();
+                    }
 
                     // Ajouter l'icône de copie après la fin du streaming
                     const copyIcon = document.createElement('div');

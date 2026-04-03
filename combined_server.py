@@ -438,32 +438,103 @@ class CombinedHandler(BaseHTTPRequestHandler):
             'User-Agent': 'ChatbotProxy/1.0'
         }
 
+        # Check if streaming is requested
+        is_streaming = False
+        req_body = b''
         try:
-            req_body = b''
             if self.command == 'POST':
                 content_length = int(self.headers.get('Content-Length', 0))
                 req_body = self.rfile.read(content_length)
+                if req_body:
+                    body_json = json.loads(req_body)
+                    is_streaming = body_json.get('stream', False)
+        except:
+            pass
 
+        try:
             req = urllib.request.Request(target_url, data=req_body if req_body else None, headers=headers, method=self.command)
 
-            with urllib.request.urlopen(req, timeout=300) as res:
-                res_data = res.read()
-                self.send_response(res.getcode())
-                for h, v in res.headers.items():
-                    if h.lower() not in ['connection', 'transfer-encoding', 'content-length']:
-                        self.send_header(h, v)
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(res_data)
+            # Handle streaming response
+            if is_streaming and 'chat/completions' in api_endpoint:
+                self.handle_streaming_response(req, api_endpoint, req_body)
+            else:
+                # Non-streaming: wait for complete response
+                with urllib.request.urlopen(req, timeout=300) as res:
+                    res_data = res.read()
+                    self.send_response(res.getcode())
+                    for h, v in res.headers.items():
+                        if h.lower() not in ['connection', 'transfer-encoding', 'content-length']:
+                            self.send_header(h, v)
+                    self.send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(res_data)
 
-                # Journalisation asynchrone
-                if 'chat/completions' in api_endpoint and res.getcode() == 200:
-                    self.extract_and_log(req_body, res_data)
+                    # Journalisation
+                    if 'chat/completions' in api_endpoint and res.getcode() == 200:
+                        self.extract_and_log(req_body, res_data)
 
         except urllib.error.HTTPError as e:
             self.send_json({'error': str(e.reason), 'code': e.code}, status=e.code)
         except Exception as e:
             self.send_error(500, str(e))
+
+    def handle_streaming_response(self, req, api_endpoint, req_body):
+        """Handle streaming response from OpenWebUI and forward to client in real-time"""
+        try:
+            conn = urllib.request.urlopen(req, timeout=300)
+            
+            # Send response headers for streaming
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Connection', 'keep-alive')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Accel-Buffering', 'no')  # Disable nginx buffering if applicable
+            self.end_headers()
+            
+            # Read and forward chunks in real-time using line buffering
+            full_response = ""
+            
+            while True:
+                line = conn.readline()
+                if not line:
+                    break
+                
+                line_str = line.decode('utf-8', errors='replace')
+                
+                # Forward the line to client immediately
+                self.wfile.write(line)
+                self.wfile.flush()
+                
+                # Extract content for logging
+                if line_str.startswith('data: '):
+                    try:
+                        data_str = line_str[6:].strip()
+                        if data_str != '[DONE]':
+                            data = json.loads(data_str)
+                            content = data.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                            if content:
+                                full_response += content
+                    except json.JSONDecodeError:
+                        pass
+            
+            # Log the conversation
+            if full_response and 'chat/completions' in api_endpoint and req_body:
+                try:
+                    question = json.loads(req_body)['messages'][-1]['content']
+                    username = self.get_username() or "unknown"
+                    print(f"[LOG] Q: {question[:50]}... R: {full_response[:50]}...")
+                except:
+                    pass
+                
+        except Exception as e:
+            print(f"[ERROR] Streaming error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                self.send_error(500, str(e))
+            except:
+                pass
 
     def extract_and_log(self, req_body, res_data):
         try:
