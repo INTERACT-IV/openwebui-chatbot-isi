@@ -623,11 +623,15 @@
                     const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
                     if (stored) {
                         conversationHistory = JSON.parse(stored);
+                        console.log('[DEBUG] Historique chargé:', conversationHistory.length, 'messages');
                         // Migration : s'assurer que les rôles sont corrects pour l'API
                         conversationHistory = conversationHistory.map(msg => ({
                             role: msg.role === 'bot' ? 'assistant' : msg.role,
                             content: msg.content
                         }));
+                        // Vérifier que chaque message a un contenu non vide
+                        conversationHistory = conversationHistory.filter(msg => msg.content && msg.content.trim() !== '');
+                        console.log('[DEBUG] Historique après filtrage:', conversationHistory.length, 'messages');
                         return true;
                     }
                 } catch (e) {
@@ -639,7 +643,9 @@
             // Sauvegarder l'historique dans le localStorage
             function saveHistory() {
                 try {
+                    console.log('[DEBUG] saveHistory - Messages à sauvegarder:', conversationHistory.map(m => ({role: m.role, content: m.content.substring(0, 50)})));
                     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(conversationHistory));
+                    console.log('[DEBUG] saveHistory - Sauvegarde réussie');
                 } catch (e) {
                     console.error('Erreur lors de la sauvegarde de l\'historique:', e);
                 }
@@ -753,6 +759,12 @@
 
             // Envoyer un message à l'API via le proxy
             async function sendMessage(message) {
+                // Sauvegarder immédiatement le message utilisateur dans l'historique
+                console.log('[DEBUG] sendMessage - Avant push user. conversationHistory:', conversationHistory.length, 'messages');
+                conversationHistory.push({ role: 'user', content: message });
+                saveHistory();
+                console.log('[DEBUG] sendMessage - Après push user. conversationHistory:', conversationHistory.length, 'messages');
+
                 try {
                     // Afficher l'indicateur de chargement
                     const loadingDiv = document.createElement('div');
@@ -815,10 +827,13 @@
 
                     let hasReceivedContent = false;
 
-                    while (true) {
+                    let streamDone = false;
+
+                    while (!streamDone) {
                         const { done, value } = await reader.read();
 
                         if (done) {
+                            streamDone = true;
                             break;
                         }
 
@@ -837,27 +852,34 @@
                                     const dataStr = line.substring(6); // Supprimer le préfixe 'data: '
 
                                     if (dataStr === '[DONE]') {
+                                        streamDone = true;
                                         break;
                                     }
 
                                     try {
                                         const data = JSON.parse(dataStr);
-                                        
-                                        // Debug: afficher le premier chunk reçu
+
+                                        // Vérifier si le streaming est terminé
+                                        const finishReason = data.choices && data.choices[0].finish_reason;
+                                        if (finishReason) {
+                                            console.log('[DEBUG] Streaming terminé, finish_reason:', finishReason);
+                                        }
+
+                                        // Debug: afficher le premier chunk reçu avec du contenu
                                         if (!hasReceivedContent) {
-                                            console.log('[DEBUG] Chunk reçu:', JSON.stringify(data).substring(0, 200));
+                                            console.log('[DEBUG] Premier chunk:', JSON.stringify(data).substring(0, 200));
                                         }
 
                                         // Essayer delta.content (format OpenAI standard)
                                         if (data.choices && data.choices[0].delta?.content) {
                                             const content = data.choices[0].delta.content;
-                                            
+
                                             // Retirer l'indicateur de thinking dès le premier contenu
                                             if (!hasReceivedContent) {
                                                 thinkingIndicator.remove();
                                                 hasReceivedContent = true;
                                             }
-                                            
+
                                             assistantMessage += content;
                                             contentDiv.innerHTML = marked.parse(assistantMessage);
                                             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -865,12 +887,12 @@
                                         // Essayer message.content (autre format possible)
                                         else if (data.choices && data.choices[0].message?.content) {
                                             const content = data.choices[0].message.content;
-                                            
+
                                             if (!hasReceivedContent) {
                                                 thinkingIndicator.remove();
                                                 hasReceivedContent = true;
                                             }
-                                            
+
                                             assistantMessage += content;
                                             contentDiv.innerHTML = marked.parse(assistantMessage);
                                             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -882,59 +904,34 @@
                                 }
                             }
                         }
+
+                        if (streamDone) break;
                     }
 
-                    // Traiter le reste du buffer
-                    if (buffer.trim()) {
-                        const lines = buffer.split('\n');
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                const dataStr = line.substring(6);
-
-                                if (dataStr === '[DONE]') {
-                                    break;
-                                }
-
-                                try {
-                                    const data = JSON.parse(dataStr);
-
-                                    // Essayer delta.content
-                                    if (data.choices && data.choices[0].delta?.content) {
-                                        const content = data.choices[0].delta.content;
-                                        
-                                        if (!hasReceivedContent) {
-                                            thinkingIndicator.remove();
-                                            hasReceivedContent = true;
-                                        }
-                                        
-                                        assistantMessage += content;
-                                        contentDiv.innerHTML = marked.parse(assistantMessage);
-                                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                                    }
-                                    // Essayer message.content
-                                    else if (data.choices && data.choices[0].message?.content) {
-                                        const content = data.choices[0].message.content;
-                                        
-                                        if (!hasReceivedContent) {
-                                            thinkingIndicator.remove();
-                                            hasReceivedContent = true;
-                                        }
-                                        
-                                        assistantMessage += content;
-                                        contentDiv.innerHTML = marked.parse(assistantMessage);
-                                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                                    }
-                                } catch (e) {
-                                    console.log('Ligne malformée ignorée :', dataStr);
-                                }
-                            }
-                        }
-                    }
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    console.log('[DEBUG] Boucle de streaming terminée. streamDone:', streamDone);
+                    console.log('[DEBUG] assistantMessage longueur:', assistantMessage.length);
+                    console.log('[DEBUG] assistantMessage:', assistantMessage.substring(0, 150) + (assistantMessage.length > 150 ? '...' : ''));
 
                     // Retirer l'indicateur de thinking s'il est toujours présent (au cas où)
                     if (thinkingIndicator.parentElement) {
                         thinkingIndicator.remove();
+                    }
+
+                    // SAUVEGARDER la réponse dans l'historique
+                    if (assistantMessage && assistantMessage.trim().length > 0) {
+                        // Vérifier si un message assistant existe déjà et le mettre à jour
+                        const lastIdx = conversationHistory.length - 1;
+                        if (lastIdx >= 0 && conversationHistory[lastIdx].role === 'assistant') {
+                            conversationHistory[lastIdx].content = assistantMessage;
+                            console.log('[DEBUG] Mise à jour du message assistant existant (index:', lastIdx, ')');
+                        } else {
+                            conversationHistory.push({ role: 'assistant', content: assistantMessage });
+                            console.log('[DEBUG] Ajout du nouveau message assistant');
+                        }
+                        saveHistory();
+                        console.log('[DEBUG] Historique sauvegardé:', conversationHistory.length, 'messages');
+                    } else {
+                        console.warn('[WARN] Réponse vide ou nulle, non sauvegardée. assistantMessage:', JSON.stringify(assistantMessage));
                     }
 
                     // Ajouter l'icône de copie après la fin du streaming
@@ -958,13 +955,16 @@
                     });
                     messageDiv.appendChild(copyIcon);
 
-                    // Sauvegarder la réponse de l'assistant dans l'historique
-                    conversationHistory.push({ role: 'assistant', content: assistantMessage });
-                    saveHistory();
-
                     return assistantMessage;
                 } catch (error) {
                     console.error('Error sending message:', error);
+
+                    // Sauvegarder la réponse partielle si elle existe
+                    if (assistantMessage) {
+                        conversationHistory.push({ role: 'assistant', content: assistantMessage });
+                        saveHistory();
+                        console.log('[DEBUG] Réponse partielle sauvegardée:', assistantMessage.substring(0, 50) + '...');
+                    }
 
                     // Supprimer l'indicateur de chargement s'il est toujours présent
                     const loadingDiv = document.querySelector('.loading');
@@ -1007,8 +1007,8 @@
                     return;
                 }
 
-                // Ajouter le message de l'utilisateur au chat
-                addMessage('user', message);
+                // Ajouter le message de l'utilisateur au chat (affichage uniquement)
+                addMessage('user', message, false); // false = ne pas sauvegarder, sendMessage s'en charge
 
                 // Effacer le champ de saisie
                 messageInput.value = '';
@@ -1019,6 +1019,7 @@
 
             messageInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
+                    e.preventDefault(); // Empêcher le comportement par défaut
                     sendBtn.click();
                 }
             });
@@ -1032,6 +1033,20 @@
                     clearHistory();
                     // Ajouter un nouveau message de bienvenue
                     addMessage('assistant', 'Bonjour ! Je suis votre assistant documentaire ISI-COM. Comment puis-je vous aider aujourd\'hui ?', false);
+                }
+            });
+
+            // Sauvegarder automatiquement lorsque l'utilisateur quitte la page
+            window.addEventListener('beforeunload', () => {
+                console.log('[DEBUG] beforeunload - Sauvegarde de l\'historique');
+                saveHistory();
+            });
+
+            // Sauvegarder aussi quand la visibilité change (changement d'onglet)
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    console.log('[DEBUG] visibilitychange (hidden) - Sauvegarde de l\'historique');
+                    saveHistory();
                 }
             });
 
