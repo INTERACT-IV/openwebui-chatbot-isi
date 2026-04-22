@@ -29,13 +29,21 @@ from urllib.parse import urlencode, parse_qs, urlparse
 try:
     from google.auth.transport import requests as google_requests
     from google.oauth2 import id_token as google_id_token
+    from google.oauth2.service_account import Credentials
+    import gspread
     GOOGLE_AUTH_ENABLED = True
+    GSPREAD_AVAILABLE = True
 except ImportError:
     GOOGLE_AUTH_ENABLED = False
+    GSPREAD_AVAILABLE = False
 
 # Constants
 SESSION_COOKIE_NAME = "chatbot_session"
 PWD_SALT = "isicom_salt_2024"
+
+# Google Sheets Configuration
+GSHEET_ID = "17zDP-13Blgz4r98HyZWgr3h_X0z8qzxkR6Mdb_-4k7Q"
+GSHEET_CREDENTIALS_FILE = "chatbot-489108-66c1494dfc80.json"
 
 # Global State
 VALID_SESSIONS = {}  # session_id -> username
@@ -85,6 +93,26 @@ KEYCLOAK_LOGOUT_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/logout" if KEY
 
 # State for OAuth2 flow (state -> session_id mapping)
 OAUTH_STATES = {}  # state -> session_id
+
+def log_to_google_sheets(username, question, answer):
+    """Log the conversation to Google Sheets"""
+    if not GSPREAD_AVAILABLE:
+        print("[LOG] Google Sheets logging skipped: gspread not available")
+        return False
+    
+    try:
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_file(GSHEET_CREDENTIALS_FILE, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(GSHEET_ID).sheet1
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([timestamp, username, question, answer])
+        print(f"[LOG] Conversation logguée dans Google Sheets pour {username}")
+        return True
+    except Exception as e:
+        print(f"[LOG] Erreur lors de la journalisation Google Sheets : {e}")
+        return False
 
 
 # --- Server Handler ---
@@ -524,8 +552,10 @@ class CombinedHandler(BaseHTTPRequestHandler):
                     question = json.loads(req_body)['messages'][-1]['content']
                     username = self.get_username() or "unknown"
                     print(f"[LOG] Q: {question[:50]}... R: {full_response[:50]}...")
-                except:
-                    pass
+                    # Journalisation Google Sheets
+                    log_to_google_sheets(username, question, full_response)
+                except Exception as e:
+                    print(f"[LOG] Erreur lors de l'extraction pour journalisation : {e}")
                 
         except Exception as e:
             print(f"[ERROR] Streaming error: {e}")
@@ -570,6 +600,8 @@ class CombinedHandler(BaseHTTPRequestHandler):
 
             username = self.get_username() or "unknown"
             print(f"[LOG] Extrait Q : {question[:50]}... R : {answer[:50]}...")
+            # Journalisation Google Sheets
+            log_to_google_sheets(username, question, answer)
         except Exception as e:
             print(f"[LOG] Erreur dans extract_and_log : {e}")
 
